@@ -115,7 +115,7 @@ public class MainCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit claim <kit> &8Claims a kit outside the GUI."));
         sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit create <kit> (optional)original &8Creates a new kit using the items in your inventory."));
         sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit edit <kit> &8Edits a kit."));
-        sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit give <kit> <player> &8Gives a kit to a player."));
+        sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit give <kit> <player> {amount} &8Gives a kit to a player."));
         sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit delete <kit> &8Deletes a kit."));
         sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit reset <kit> <player>/* &8Resets kit data for a player."));
         sender.sendMessage(MessagesManager.getLegacyColoredMessage("&6/kit preview <kit> (optional)<player> &8Previews a kit."));
@@ -220,7 +220,7 @@ public class MainCommand implements CommandExecutor, TabCompleter {
     }
 
     public void give(CommandSender sender,String[] args,FileConfiguration messagesConfig,MessagesManager msgManager){
-        // /kits give <kit> <player>
+        // /kits give <kit> <player> {amount}
         if(!PlayerUtils.isPlayerKitsAdmin(sender)){
             msgManager.sendMessage(sender,messagesConfig.getString("noPermissions"),true);
             return;
@@ -239,13 +239,33 @@ public class MainCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        PlayerKitsMessageResult result = plugin.getKitsManager().giveKit(player,kitName,new GiveKitInstructions(true,false,false,false));
+        // Obtener cantidad (opcional, por defecto 1)
+        int amount = 1;
+        if(args.length >= 4){
+            try{
+                amount = Integer.parseInt(args[3]);
+                if(amount < 1){
+                    msgManager.sendMessage(sender,MessagesManager.getLegacyColoredMessage("&cThe amount must be at least 1."),true);
+                    return;
+                }
+            }catch(NumberFormatException e){
+                msgManager.sendMessage(sender,MessagesManager.getLegacyColoredMessage("&cInvalid amount. Please enter a valid number."),true);
+                return;
+            }
+        }
+
+        PlayerKitsMessageResult result = plugin.getKitsManager().giveKit(player,kitName,new GiveKitInstructions(true,false,false,false), amount);
         if(result.isError()){
             msgManager.sendMessage(sender,messagesConfig.getString("commandGiveError2")
                     .replace("%error%",result.getMessage()),true);
         }else{
-            msgManager.sendMessage(sender,messagesConfig.getString("commandGiveCorrect")
-                    .replace("%kit%",kitName).replace("%player%",args[2]),true);
+            String message = messagesConfig.getString("commandGiveCorrect")
+                    .replace("%kit%",kitName)
+                    .replace("%player%",args[2]);
+            if(amount > 1){
+                message += MessagesManager.getLegacyColoredMessage(" &7(x" + amount + ")");
+            }
+            msgManager.sendMessage(sender, message, true);
         }
     }
 
@@ -477,6 +497,22 @@ public class MainCommand implements CommandExecutor, TabCompleter {
                         completions.add("*");
                     }
                     return completions;
+                }else if(args[0].equalsIgnoreCase("give")){
+                    // Tab complete para jugadores en /kit give <kit> <player>
+                    for(Player p : Bukkit.getOnlinePlayers()) {
+                        if(args[2].isEmpty() || p.getName().toLowerCase().startsWith(args[2].toLowerCase())){
+                            completions.add(p.getName());
+                        }
+                    }
+                    return completions;
+                }
+            }else if(args.length == 4 && PlayerUtils.isPlayerKitsAdmin(sender)){
+                if(args[0].equalsIgnoreCase("give")){
+                    // Tab complete para cantidad en /kit give <kit> <player> {amount}
+                    completions.add("1");
+                    completions.add("5");
+                    completions.add("10");
+                    return completions;
                 }
             }
         }
@@ -510,7 +546,7 @@ public class MainCommand implements CommandExecutor, TabCompleter {
         ArrayList<KitInventory> inventories = plugin.getInventoryManager().getInventories();
         for(KitInventory inv : inventories) {
             if((argInv.isEmpty() || inv.getName().toLowerCase().startsWith(argInv.toLowerCase()))
-                && !inv.getName().equals("preview_inventory") && !inv.getName().equals("buy_requirements_inventory")) {
+                    && !inv.getName().equals("preview_inventory") && !inv.getName().equals("buy_requirements_inventory")) {
                 completions.add(inv.getName());
             }
         }

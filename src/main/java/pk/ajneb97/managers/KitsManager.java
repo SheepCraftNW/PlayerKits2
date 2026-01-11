@@ -150,12 +150,23 @@ public class KitsManager {
         msgManager.sendMessage(sender,messagesFile.getString("kitDeleted").replace("%kit%",kitName),true);
     }
 
+    // Método sobrecargado para mantener compatibilidad
     public PlayerKitsMessageResult giveKit(Player player, String kitName, GiveKitInstructions giveKitInstructions){
+        return giveKit(player, kitName, giveKitInstructions, 1);
+    }
+
+    // Método principal con soporte de cantidad
+    public PlayerKitsMessageResult giveKit(Player player, String kitName, GiveKitInstructions giveKitInstructions, int amount){
         Kit kit = getKitByName(kitName);
         FileConfiguration messagesFile = plugin.getConfigsManager().getMessagesConfigManager().getConfig();
         FileConfiguration configFile = plugin.getConfigsManager().getMainConfigManager().getConfig();
         PlayerDataManager playerDataManager = plugin.getPlayerDataManager();
         MessagesManager msgManager = plugin.getMessagesManager();
+
+        // Validar cantidad
+        if(amount < 1){
+            amount = 1;
+        }
 
         if(kit == null){
             return PlayerKitsMessageResult.error(messagesFile.getString("kitDoesNotExists").replace("%kit%",kitName));
@@ -201,8 +212,9 @@ public class KitsManager {
                         return result;
                     }
 
-                    //Check price
-                    if(!passPrice(kitRequirements.getPrice(),player)){
+                    //Check price (multiplicado por la cantidad)
+                    double totalPrice = kitRequirements.getPrice() * amount;
+                    if(!passPrice(totalPrice, player)){
                         sendKitActions(kit.getErrorActions(),player,false);
                         return PlayerKitsMessageResult.error(messagesFile.getString("requirementsError"));
                     }
@@ -225,7 +237,7 @@ public class KitsManager {
         KitItemManager kitItemManager = plugin.getKitItemManager();
         ArrayList<KitItem> items = kit.getItems();
 
-        //Check amount of free slots, including auto-armor
+        //Check amount of free slots, including auto-armor (multiplicado por la cantidad)
         int usedSlots = PlayerUtils.getUsedSlots(player); //storage contents, 36 slots
         int freeSlots = 36-usedSlots;
         int inventoryKitItems = 0; //Items that will be put in the player inventory (not equipment)
@@ -291,7 +303,9 @@ public class KitsManager {
             }
         }
 
-        boolean enoughSpace = freeSlots < inventoryKitItems;
+        // Calcular espacio necesario considerando la cantidad
+        int totalItemsNeeded = inventoryKitItems * amount;
+        boolean enoughSpace = freeSlots < totalItemsNeeded;
         boolean dropItemsIfFullInventory = configFile.getBoolean("drop_items_if_full_inventory");
 
         if(enoughSpace && !dropItemsIfFullInventory && !clearInventory){
@@ -303,34 +317,50 @@ public class KitsManager {
             player.getInventory().clear();
         }
 
-        //Actions before
-        sendKitActions(kit.getClaimActions(),player,true);
+        // Dar el kit la cantidad de veces especificada
+        for(int i = 0; i < amount; i++){
+            //Actions before (solo en la primera iteración)
+            if(i == 0){
+                sendKitActions(kit.getClaimActions(),player,true);
+            }
 
-        //Give kit items
-        for(KitItem kitItem : items){
-            ItemStack item = kitItemManager.createItemFromKitItem(kitItem,player,kit);
+            //Give kit items
+            for(KitItem kitItem : items){
+                ItemStack item = kitItemManager.createItemFromKitItem(kitItem,player,kit);
 
-            if(itemHelmet != null && kitItem.equals(itemHelmet)){
-                playerInventory.setHelmet(item);
-            }else if(itemChestplate != null && kitItem.equals(itemChestplate)){
-                playerInventory.setChestplate(item);
-            }else if(itemLeggings != null && kitItem.equals(itemLeggings)){
-                playerInventory.setLeggings(item);
-            }else if(itemBoots != null && kitItem.equals(itemBoots)){
-                playerInventory.setBoots(item);
-            }else if(itemOffhand != null && kitItem.equals(itemOffhand)){
-                playerInventory.setItemInOffHand(item);
-            }else{
+                // En la primera iteración, equipar armadura y offhand
+                if(i == 0){
+                    if(itemHelmet != null && kitItem.equals(itemHelmet)){
+                        playerInventory.setHelmet(item);
+                        continue;
+                    }else if(itemChestplate != null && kitItem.equals(itemChestplate)){
+                        playerInventory.setChestplate(item);
+                        continue;
+                    }else if(itemLeggings != null && kitItem.equals(itemLeggings)){
+                        playerInventory.setLeggings(item);
+                        continue;
+                    }else if(itemBoots != null && kitItem.equals(itemBoots)){
+                        playerInventory.setBoots(item);
+                        continue;
+                    }else if(itemOffhand != null && kitItem.equals(itemOffhand)){
+                        playerInventory.setItemInOffHand(item);
+                        continue;
+                    }
+                }
+
+                // Dar items al inventario
                 if(playerInventory.firstEmpty() == -1 && dropItemsIfFullInventory){
                     player.getWorld().dropItemNaturally(player.getLocation(), item);
                 }else{
                     playerInventory.addItem(item);
                 }
             }
-        }
 
-        //Actions after
-        sendKitActions(kit.getClaimActions(),player,false);
+            //Actions after (solo en la última iteración)
+            if(i == amount - 1){
+                sendKitActions(kit.getClaimActions(),player,false);
+            }
+        }
 
         //Update properties
         if(!giveKitInstructions.isFromCommand()){
@@ -348,11 +378,11 @@ public class KitsManager {
             //Requirements - Buy
             KitRequirements kitRequirements = kit.getRequirements();
             if(!giveKitInstructions.isIgnoreRequirements() && kitRequirements != null && giveKitInstructions.isRequirementsSatisfied()){
-                //Check price and update balance
-                double price = kitRequirements.getPrice();
+                //Check price and update balance (multiplicado por la cantidad)
+                double totalPrice = kitRequirements.getPrice() * amount;
                 Economy economy = plugin.getDependencyManager().getVaultEconomy();
-                if(price > 0 && economy != null){
-                    economy.withdrawPlayer(player,price);
+                if(totalPrice > 0 && economy != null){
+                    economy.withdrawPlayer(player, totalPrice);
                 }
 
                 //Actions
@@ -379,7 +409,7 @@ public class KitsManager {
         if(firstJoinKit.equals("none")){
             return;
         }
-        giveKit(player,firstJoinKit,new GiveKitInstructions(false,false,true,true));
+        giveKit(player,firstJoinKit,new GiveKitInstructions(false,false,true,true), 1);
     }
 
     public void executeAction(Player player,String actionText){
